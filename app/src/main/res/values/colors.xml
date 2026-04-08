@@ -1,5 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <color name="md_theme_primary">#3B82F6</color>
+    <color name="md_theme_onPrimary">#FFFFFF</color>
+    <color name="md_theme_secondary">#22C55E</color>
+    <color name="md_theme_background">#E6EBF6</color>
+    <color name="md_theme_surface">#111827</color>
+    <color name="md_theme_onSurface">#E5E7EB</color>
+    <color name="danger">#EF4444</color>
 </resources>

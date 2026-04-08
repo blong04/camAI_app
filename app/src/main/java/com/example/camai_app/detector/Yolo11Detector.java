@@ -23,6 +23,9 @@ import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
+import androidx.annotation.OptIn;
+import androidx.camera.core.ExperimentalGetImage;
+
 public class Yolo11Detector {
 
     private static final String MODEL_PATH = "yolo11n_float32.tflite";
@@ -46,10 +49,12 @@ public class Yolo11Detector {
 
     public boolean detectPerson(@NonNull ImageProxy imageProxy) {
         Bitmap bitmap = toBitmap(imageProxy);
-        if (bitmap == null) {
-            return false;
-        }
+        if (bitmap == null) return false;
+        return detectPerson(bitmap);
+    }
 
+    // <-- Hàm thiếu gây lỗi compile của bạn
+    public boolean detectPerson(@NonNull Bitmap bitmap) {
         Bitmap resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true);
         ByteBuffer input = convertBitmapToInputBuffer(resized);
 
@@ -62,17 +67,12 @@ public class Yolo11Detector {
 
         int personClassIndex = 0;
         int classStart = 4;
-        if (channels <= classStart + personClassIndex) {
-            return false;
-        }
+        if (channels <= classStart + personClassIndex) return false;
 
         for (int i = 0; i < anchors; i++) {
             float personScore = output[0][classStart + personClassIndex][i];
-            if (personScore >= personThreshold) {
-                return true;
-            }
+            if (personScore >= personThreshold) return true;
         }
-
         return false;
     }
 
@@ -111,11 +111,10 @@ public class Yolo11Detector {
         return byteBuffer;
     }
 
+    @OptIn(markerClass = ExperimentalGetImage.class)
     private static Bitmap toBitmap(ImageProxy imageProxy) {
         Image image = imageProxy.getImage();
-        if (image == null) {
-            return null;
-        }
+        if (image == null) return null;
 
         byte[] nv21 = yuv420ToNv21(imageProxy);
         YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, imageProxy.getWidth(), imageProxy.getHeight(), null);
@@ -128,13 +127,10 @@ public class Yolo11Detector {
         }
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-        if (bitmap == null) {
-            return null;
-        }
+        if (bitmap == null) return null;
 
         Matrix matrix = new Matrix();
         matrix.postRotate(imageProxy.getImageInfo().getRotationDegrees());
-
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
     }
 
@@ -148,7 +144,6 @@ public class Yolo11Detector {
         int vSize = vBuffer.remaining();
 
         byte[] nv21 = new byte[ySize + uSize + vSize];
-
         yBuffer.get(nv21, 0, ySize);
         vBuffer.get(nv21, ySize, vSize);
         uBuffer.get(nv21, ySize + vSize, uSize);
