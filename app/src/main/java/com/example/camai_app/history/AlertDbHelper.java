@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AlertDbHelper extends SQLiteOpenHelper {
+
     public AlertDbHelper(Context context) {
         super(context, "camai.db", null, 1);
     }
@@ -24,7 +25,8 @@ public class AlertDbHelper extends SQLiteOpenHelper {
     }
 
     @Override
-    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {}
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+    }
 
     public void insertAlert(String timeText, String imagePath, String source) {
         SQLiteDatabase db = getWritableDatabase();
@@ -35,12 +37,22 @@ public class AlertDbHelper extends SQLiteOpenHelper {
         db.insert("alerts", null, cv);
     }
 
-    public List<String> getAllSimple() {
-        List<String> out = new ArrayList<>();
+    public List<AlertItem> getAllAlerts() {
+        List<AlertItem> out = new ArrayList<>();
         SQLiteDatabase db = getReadableDatabase();
-        Cursor c = db.rawQuery("SELECT time_text,source,image_path FROM alerts ORDER BY id DESC", null);
+
+        Cursor c = db.rawQuery(
+                "SELECT id, time_text, source, image_path FROM alerts ORDER BY id DESC",
+                null
+        );
+
         while (c.moveToNext()) {
-            out.add(c.getString(0) + " | " + c.getString(1) + "\n" + c.getString(2));
+            out.add(new AlertItem(
+                    c.getLong(0),
+                    c.getString(1),
+                    c.getString(2),
+                    c.getString(3)
+            ));
         }
         c.close();
         return out;

@@ -3,151 +3,91 @@ package com.example.camai_app.detector;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.ImageFormat;
-import android.graphics.Matrix;
-import android.graphics.Rect;
-import android.graphics.YuvImage;
-import android.media.Image;
-
-import androidx.annotation.NonNull;
-import androidx.camera.core.ImageProxy;
 
 import org.tensorflow.lite.Interpreter;
 
-import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-
-import androidx.annotation.OptIn;
-import androidx.camera.core.ExperimentalGetImage;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Yolo11Detector {
 
     private static final String MODEL_PATH = "yolo11n_float32.tflite";
-    private static final int PIXEL_SIZE = 3;
 
     private final Interpreter interpreter;
-    private final int inputWidth;
-    private final int inputHeight;
-    private final float personThreshold;
+    private final int inputSize = 640;
 
-    public Yolo11Detector(@NonNull Context context, float personThreshold) throws IOException {
-        this.personThreshold = personThreshold;
+    public Yolo11Detector(Context context, float threshold) throws IOException {
         Interpreter.Options options = new Interpreter.Options();
         options.setNumThreads(4);
-        interpreter = new Interpreter(loadModelFile(context, MODEL_PATH), options);
-
-        int[] inputShape = interpreter.getInputTensor(0).shape();
-        inputHeight = inputShape[1];
-        inputWidth = inputShape[2];
+        interpreter = new Interpreter(loadModelFile(context), options);
     }
 
-    public boolean detectPerson(@NonNull ImageProxy imageProxy) {
-        Bitmap bitmap = toBitmap(imageProxy);
-        if (bitmap == null) return false;
-        return detectPerson(bitmap);
+    private MappedByteBuffer loadModelFile(Context context) throws IOException {
+        AssetFileDescriptor fileDescriptor = context.getAssets().openFd(MODEL_PATH);
+        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY,
+                fileDescriptor.getStartOffset(),
+                fileDescriptor.getDeclaredLength());
     }
 
-    // <-- Hàm thiếu gây lỗi compile của bạn
-    public boolean detectPerson(@NonNull Bitmap bitmap) {
-        Bitmap resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true);
-        ByteBuffer input = convertBitmapToInputBuffer(resized);
+    public List<DetectionResult> detect(Bitmap bitmap) {
+        Bitmap resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true);
 
-        int[] outputShape = interpreter.getOutputTensor(0).shape();
-        int channels = outputShape[1];
-        int anchors = outputShape[2];
-        float[][][] output = new float[1][channels][anchors];
+        ByteBuffer input = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4);
+        input.order(ByteOrder.nativeOrder());
 
+        int[] pixels = new int[inputSize * inputSize];
+        resized.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize);
+
+        for (int p : pixels) {
+            input.putFloat(((p >> 16) & 0xFF) / 255f);
+            input.putFloat(((p >> 8) & 0xFF) / 255f);
+            input.putFloat((p & 0xFF) / 255f);
+        }
+
+        float[][][] output = new float[1][84][8400];
         interpreter.run(input, output);
 
-        int personClassIndex = 0;
-        int classStart = 4;
-        if (channels <= classStart + personClassIndex) return false;
+        List<DetectionResult> results = new ArrayList<>();
 
-        for (int i = 0; i < anchors; i++) {
-            float personScore = output[0][classStart + personClassIndex][i];
-            if (personScore >= personThreshold) return true;
+        for (int i = 0; i < 8400; i++) {
+            float conf = output[0][4][i];
+
+            if (conf > 0.6f) {
+                float cx = output[0][0][i];
+                float cy = output[0][1][i];
+                float w = output[0][2][i];
+                float h = output[0][3][i];
+
+                float left = (cx - w / 2f) * bitmap.getWidth() / inputSize;
+                float top = (cy - h / 2f) * bitmap.getHeight() / inputSize;
+                float right = (cx + w / 2f) * bitmap.getWidth() / inputSize;
+                float bottom = (cy + h / 2f) * bitmap.getHeight() / inputSize;
+
+                results.add(new DetectionResult(
+                        left, top, right, bottom,
+                        conf,
+                        0,
+                        "Người"
+                ));
+            }
         }
-        return false;
+
+        return results;
+    }
+
+    public boolean detectPerson(Bitmap bitmap) {
+        return !detect(bitmap).isEmpty();
     }
 
     public void close() {
         interpreter.close();
-    }
-
-    private static MappedByteBuffer loadModelFile(Context context, String modelPath) throws IOException {
-        try (AssetFileDescriptor fileDescriptor = context.getAssets().openFd(modelPath);
-             FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor())) {
-            FileChannel fileChannel = inputStream.getChannel();
-            long startOffset = fileDescriptor.getStartOffset();
-            long declaredLength = fileDescriptor.getDeclaredLength();
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
-        }
-    }
-
-    private static ByteBuffer convertBitmapToInputBuffer(Bitmap bitmap) {
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * bitmap.getWidth() * bitmap.getHeight() * PIXEL_SIZE);
-        byteBuffer.order(ByteOrder.nativeOrder());
-
-        int[] intValues = new int[bitmap.getWidth() * bitmap.getHeight()];
-        bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
-
-        int pixel = 0;
-        for (int i = 0; i < bitmap.getHeight(); i++) {
-            for (int j = 0; j < bitmap.getWidth(); j++) {
-                int value = intValues[pixel++];
-                byteBuffer.putFloat(((value >> 16) & 0xFF) / 255f);
-                byteBuffer.putFloat(((value >> 8) & 0xFF) / 255f);
-                byteBuffer.putFloat((value & 0xFF) / 255f);
-            }
-        }
-
-        byteBuffer.rewind();
-        return byteBuffer;
-    }
-
-    @OptIn(markerClass = ExperimentalGetImage.class)
-    private static Bitmap toBitmap(ImageProxy imageProxy) {
-        Image image = imageProxy.getImage();
-        if (image == null) return null;
-
-        byte[] nv21 = yuv420ToNv21(imageProxy);
-        YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, imageProxy.getWidth(), imageProxy.getHeight(), null);
-        byte[] imageBytes;
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            yuvImage.compressToJpeg(new Rect(0, 0, imageProxy.getWidth(), imageProxy.getHeight()), 90, out);
-            imageBytes = out.toByteArray();
-        } catch (IOException e) {
-            return null;
-        }
-
-        Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-        if (bitmap == null) return null;
-
-        Matrix matrix = new Matrix();
-        matrix.postRotate(imageProxy.getImageInfo().getRotationDegrees());
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-    }
-
-    private static byte[] yuv420ToNv21(ImageProxy image) {
-        ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
-        ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
-        ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
-
-        int ySize = yBuffer.remaining();
-        int uSize = uBuffer.remaining();
-        int vSize = vBuffer.remaining();
-
-        byte[] nv21 = new byte[ySize + uSize + vSize];
-        yBuffer.get(nv21, 0, ySize);
-        vBuffer.get(nv21, ySize, vSize);
-        uBuffer.get(nv21, ySize + vSize, uSize);
-
-        return nv21;
     }
 }
